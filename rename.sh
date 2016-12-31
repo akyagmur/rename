@@ -1,10 +1,10 @@
 #!/bin/bash
 EXECUTION_STARTTIME=$(date +%s)
 MODIFIED_FILESCOUNT=0
-TYPE="jpg"
+TYPE=""
 FORCE="false"
 VERBOSE="false"
-PATTERN="*.$TYPE"
+PATTERN="*"
 FILE_FORMAT="%Y_%m_%d+%H.%M.%S"
 PLATFORM="$(uname -s)"
 
@@ -22,6 +22,14 @@ do
         ;;
         -p=*|--pattern=*)
         PATTERN="${i#*=}"
+        shift
+        ;;
+        -b=*|--before=*)
+        BEFORE="${i#*=}"
+        shift
+        ;;
+        -a=*|--after=*)
+        AFTER="${i#*=}"
         shift
         ;;
         --format=*)
@@ -46,48 +54,63 @@ fi
 
 FILESCOUNT=$(ls $PATTERN | wc -l)
 
+
 makeSequential () {
     BASENAME=$1
-    EXTENSION=$2
-    INPUT=$3
-    COUNT=$4
-    ORIGINAL_NAME=$5
-
-    if [ ! -e "$BASENAME($COUNT).$EXTENSION" ] 
+    ORIGINAL_NAME=$2
+    EXTENSION=$(awk -F . '{print $NF}' <<< "$ORIGINAL_NAME")
+    if [ $EXTENSION != $ORIGINAL_NAME ]; then EXTENSION=".$EXTENSION"; else EXTENSION=""; fi
+    COUNT=${3:-1}
+    if [ ! -e "$BASENAME($COUNT)$EXTENSION" ] 
     then
         (( MODIFIED_FILESCOUNT++ ))
-        mv -n "$INPUT" "$BASENAME($COUNT).$EXTENSION"
-        if [ $VERBOSE = "true" ] && [ -n "$ORIGINAL_NAME" ]; then echo "$ORIGINAL_NAME => $BASENAME($COUNT).$EXTENSION"; fi
+        mv -n "x" "$BASENAME($COUNT)$EXTENSION"
+        if [ $VERBOSE = "true" ] && [ -n "$ORIGINAL_NAME" ]; then echo "$ORIGINAL_NAME => $BASENAME($COUNT)$EXTENSION"; fi
     else 
         (( COUNT++ ))
-        makeSequential $BASENAME $EXTENSION $INPUT $COUNT $ORIGINAL_NAME
+        makeSequential $BASENAME $ORIGINAL_NAME $COUNT
     fi
 }
 
 for FILE in $PATTERN;
 do
+FILEBASE="${FILE%.*}"
 EXTENSION=$(awk -F . '{print $NF}' <<< "$FILE")
-if [ $PLATFORM = "Darwin" ]
+if [ $EXTENSION != $FILE ]; then EXTENSION=".$EXTENSION"; else EXTENSION=""; fi
+
+if [ "$BEFORE" != "" ] && [ "$AFTER" != "" ] 
 then
-    BASENAME=$(stat -f "%Sm" -t "$FILE_FORMAT" "$FILE")
+    BASENAME="$BEFORE$FILEBASE$AFTER"
+elif [ "$BEFORE" != "" ] 
+then
+    BASENAME="$BEFORE$FILEBASE"
+elif [ "$AFTER" != "" ]
+then 
+    BASENAME="$FILEBASE$AFTER"
 else
-    BASENAME=$(date "+$FILE_FORMAT" -r "$FILE")
+    if [ $PLATFORM = "Darwin" ]
+    then
+        BASENAME=$(stat -f "%Sm" -t "$FILE_FORMAT" "$FILE")
+    else
+        BASENAME=$(date "+$FILE_FORMAT" -r "$FILE")
+    fi
 fi
+
 ORDER=$(awk -F'[(|)]' '{print $2}' <<< "$FILE")
 ORIGINAL_NAME="$FILE"
 
 if [ -n "$ORDER" ]; then ORDER="($ORDER)"; else ORDER=""; fi
 
-if [ "$FILE" != "${BASENAME}${ORDER}.${EXTENSION}" ] || [ "$FORCE" = "true" ]
+if [ "$FILE" != "${BASENAME}${ORDER}${EXTENSION}" ] || [ "$FORCE" = "true" ]
 then
     mv -n "$FILE" "x"
-    if [ ! -e "${BASENAME}.${EXTENSION}" ]
+    if [ ! -e "${BASENAME}${EXTENSION}" ]
     then
         (( MODIFIED_FILESCOUNT++ ))
-        mv -n "x" "${BASENAME}.${EXTENSION}"
-        if [ $VERBOSE = "true" ]; then echo "$ORIGINAL_NAME => ${BASENAME}.${EXTENSION}"; fi
+        mv -n "x" "${BASENAME}${EXTENSION}"
+        if [ $VERBOSE = "true" ]; then echo "$ORIGINAL_NAME => ${BASENAME}${EXTENSION}"; fi
     else
-        makeSequential $BASENAME $EXTENSION "x" "1" $ORIGINAL_NAME
+        makeSequential $BASENAME $ORIGINAL_NAME
     fi
 fi
 
