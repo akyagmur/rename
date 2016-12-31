@@ -6,6 +6,7 @@ FORCE="false"
 VERBOSE="false"
 PATTERN="*.$TYPE"
 FILE_FORMAT="%Y_%m_%d+%H.%M.%S"
+PLATFORM="$(uname -s)"
 
 for i in "$@"
 do
@@ -66,7 +67,12 @@ makeSequential () {
 for FILE in $PATTERN;
 do
 EXTENSION=$(awk -F . '{print $NF}' <<< "$FILE")
-BASENAME=$(stat -f "%Sm" -t "$FILE_FORMAT" "$FILE")
+if [ $PLATFORM = "Darwin" ]
+then
+    BASENAME=$(stat -f "%Sm" -t "$FILE_FORMAT" "$FILE")
+else
+    BASENAME=$(date "+$FILE_FORMAT" -r "$FILE")
+fi
 ORDER=$(awk -F'[(|)]' '{print $2}' <<< "$FILE")
 ORIGINAL_NAME="$FILE"
 
