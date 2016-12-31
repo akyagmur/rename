@@ -3,7 +3,7 @@ Rename
   <br>
 </h1>
 
-<h4 align="center">Rename files as date modified on Mac OS</h4>
+<h4 align="center">Rename files as date modified on Mac OS and GNU/Linux</h4>
 
 ## How to install?
 
