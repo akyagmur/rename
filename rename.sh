@@ -1,23 +1,20 @@
 #!/bin/bash
 EXECUTION_STARTTIME=$(date +%s)
 MODIFIED_FILESCOUNT=0
-TYPE=""
-FORCE="false"
-VERBOSE="false"
 PATTERN="*"
-FILE_FORMAT="%Y_%m_%d+%H.%M.%S"
+DATE_FORMAT="%Y_%m_%d+%H.%M.%S"
 PLATFORM="$(uname -s)"
+NOW=$(date "+%Y:%m:%d_%H:%M:%S")
 
-for i in "$@"
-do
+for i in "$@"; do
     case $i in
         -e=*|--extension=*)
-        TYPE="${i#*=}"
-        PATTERN="*.$TYPE"
+        GIVEN_EXTENSION="${i#*=}"
+        PATTERN="*.$GIVEN_EXTENSION"
         shift
         ;;
         -v|--verbose)
-        VERBOSE="true"
+        VERBOSE=false
         shift
         ;;
         -p=*|--pattern=*)
@@ -33,11 +30,19 @@ do
         shift
         ;;
         --format=*)
-        FILE_FORMAT="${i#*=}"
+        DATE_FORMAT="${i#*=}"
         shift
         ;;
         -f|--force)
-        FORCE="true"
+        FORCE=false
+        shift
+        ;;
+        --backup)
+        BACKUP=false
+        shift
+        ;;
+        --restore)
+        RESTORE=false
         shift
         ;;
         *)
@@ -45,75 +50,104 @@ do
     esac
 done
 
+if ! $RESTORE; then
+    if ! $(ls .backup* 1> /dev/null  2>&1) ; then
+        echo "No backup file found at this folder."
+        exit 1
+    fi
 
-if ! ls $PATTERN 1> /dev/null 2>&1
-then
+    PS3="Please choose backup file: "
+    BACKUP_FILES=($(ls .backup*))
+    BACKUP_FILES+=("Quit")
+    select BACKUP_FILE in "${BACKUP_FILES[@]}"; do
+        case $BACKUP_FILE in
+            "$BACKUP_FILE")
+                if [ "$BACKUP_FILE" = "Quit" ]; then
+                    exit 1
+                fi
+
+                while read line; do
+                    ORDER="1"
+                    for word in $line; do
+                        if [ $ORDER = "1" ]; then
+                            LAST_FILENAME="$word"
+                        else 
+                            if [ -e $LAST_FILENAME ] ; then
+                                mv "$LAST_FILENAME" "$word"
+                            fi
+                        fi
+                        (( ORDER++ ))
+                    done
+                done < $BACKUP_FILE
+
+                FILES_COUNT=$(wc -l < $BACKUP_FILE)
+                rm "$BACKUP_FILE"
+                EXECUTION_ENDTIME=$(date +%s)
+                EXECUTION_TIME=$(( $EXECUTION_ENDTIME-$EXECUTION_STARTTIME ))
+                echo "$FILES_COUNT files renamed from backup in $EXECUTION_TIME seconds"
+                exit 1
+                ;;
+            *) echo "Invalid option";;
+        esac
+    done
+fi
+
+if ! ls $PATTERN 1> /dev/null 2>&1; then
     echo "No files found with given pattern or extension: $PATTERN"
     exit 1
 fi
 
 FILESCOUNT=$(ls $PATTERN | wc -l)
 
-
-makeSequential () {
+make_sequential () {
     BASENAME=$1
-    ORIGINAL_NAME=$2
-    EXTENSION=$(awk -F . '{print $NF}' <<< "$ORIGINAL_NAME")
-    if [ $EXTENSION != $ORIGINAL_NAME ]; then EXTENSION=".$EXTENSION"; else EXTENSION=""; fi
+    ORIGINAL_FILE_FULLNAME=$2
+    EXTENSION=$(awk -F . '{print $NF}' <<< "$ORIGINAL_FILE_FULLNAME")
+    if [ $EXTENSION != $ORIGINAL_FILE_FULLNAME ]; then EXTENSION=".$EXTENSION"; else EXTENSION=""; fi
     COUNT=${3:-1}
-    if [ ! -e "$BASENAME($COUNT)$EXTENSION" ] 
-    then
+    if [ ! -e "$BASENAME($COUNT)$EXTENSION" ] ; then
         (( MODIFIED_FILESCOUNT++ ))
         mv -n "x" "$BASENAME($COUNT)$EXTENSION"
-        if [ $VERBOSE = "true" ] && [ -n "$ORIGINAL_NAME" ]; then echo "$ORIGINAL_NAME => $BASENAME($COUNT)$EXTENSION"; fi
+        if ! $BACKUP ; then echo -e "\t$BASENAME($COUNT)$EXTENSION\t$ORIGINAL_FILE_FULLNAME" >> ".backup$NOW"; fi
+        if ! $VERBOSE && [ -n "$ORIGINAL_FILE_FULLNAME" ]; then echo "$ORIGINAL_FILE_FULLNAME => $BASENAME($COUNT)$EXTENSION"; fi
     else 
         (( COUNT++ ))
-        makeSequential $BASENAME $ORIGINAL_NAME $COUNT
+        make_sequential $BASENAME $ORIGINAL_FILE_FULLNAME $COUNT
     fi
 }
 
-for FILE in $PATTERN;
-do
-FILEBASE="${FILE%.*}"
-EXTENSION=$(awk -F . '{print $NF}' <<< "$FILE")
-if [ $EXTENSION != $FILE ]; then EXTENSION=".$EXTENSION"; else EXTENSION=""; fi
+for FILE in $PATTERN; do
+    ORIGINAL_FILE_BASENAME="${FILE%.*}"
+    EXTENSION=$(awk -F . '{print $NF}' <<< "$FILE")
+    
+    if [ $EXTENSION != $FILE ]; then EXTENSION=".$EXTENSION"; else EXTENSION=""; fi
 
-if [ "$BEFORE" != "" ] && [ "$AFTER" != "" ] 
-then
-    BASENAME="$BEFORE$FILEBASE$AFTER"
-elif [ "$BEFORE" != "" ] 
-then
-    BASENAME="$BEFORE$FILEBASE"
-elif [ "$AFTER" != "" ]
-then 
-    BASENAME="$FILEBASE$AFTER"
-else
-    if [ $PLATFORM = "Darwin" ]
-    then
-        BASENAME=$(stat -f "%Sm" -t "$FILE_FORMAT" "$FILE")
+    if [ "$BEFORE" != "" ] || [ "$AFTER" != "" ] ; then
+        BASENAME="$BEFORE$ORIGINAL_FILE_BASENAME$AFTER"
     else
-        BASENAME=$(date "+$FILE_FORMAT" -r "$FILE")
+        if [ $PLATFORM = "Darwin" ] ; then
+            BASENAME=$(stat -f "%Sm" -t "$DATE_FORMAT" "$FILE")
+        else
+            BASENAME=$(date "+$DATE_FORMAT" -r "$FILE")
+        fi
     fi
-fi
 
-ORDER=$(awk -F'[(|)]' '{print $2}' <<< "$FILE")
-ORIGINAL_NAME="$FILE"
+    ORDER=$(awk -F'[(|)]' '{print $2}' <<< "$FILE")
+    ORIGINAL_FILE_FULLNAME="$FILE"
 
-if [ -n "$ORDER" ]; then ORDER="($ORDER)"; else ORDER=""; fi
+    if [ -n "$ORDER" ]; then ORDER="($ORDER)"; else ORDER=""; fi
 
-if [ "$FILE" != "${BASENAME}${ORDER}${EXTENSION}" ] || [ "$FORCE" = "true" ]
-then
-    mv -n "$FILE" "x"
-    if [ ! -e "${BASENAME}${EXTENSION}" ]
-    then
-        (( MODIFIED_FILESCOUNT++ ))
-        mv -n "x" "${BASENAME}${EXTENSION}"
-        if [ $VERBOSE = "true" ]; then echo "$ORIGINAL_NAME => ${BASENAME}${EXTENSION}"; fi
-    else
-        makeSequential $BASENAME $ORIGINAL_NAME
+    if [ "$FILE" != "${BASENAME}${ORDER}${EXTENSION}" ] || ! $FORCE ; then
+        mv -n "$FILE" "x"
+        if [ ! -e "${BASENAME}${EXTENSION}" ] ; then
+            (( MODIFIED_FILESCOUNT++ ))
+            mv -n "x" "${BASENAME}${EXTENSION}"
+            if ! $BACKUP ; then echo -e "\t${BASENAME}${EXTENSION}\t$ORIGINAL_FILE_FULLNAME" >> ".backup$NOW"; fi
+            if ! $VERBOSE ; then echo "$ORIGINAL_FILE_FULLNAME => ${BASENAME}${EXTENSION}"; fi
+        else
+            make_sequential $BASENAME $ORIGINAL_FILE_FULLNAME
+        fi
     fi
-fi
-
 done
 
 EXECUTION_ENDTIME=$(date +%s)
