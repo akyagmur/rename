@@ -137,7 +137,7 @@ for FILE in $PATTERN; do
 
     if [ -n "$ORDER" ]; then ORDER="($ORDER)"; else ORDER=""; fi
 
-    if [ "$FILE" != "${BASENAME}${ORDER}${EXTENSION}" ] || ! $FORCE ; then
+    if [ "$FILE" != "${BASENAME}${ORDER}${EXTENSION}" ] || ! $FORCE && ! test -d $FILE ; then
         mv -n "$FILE" "x"
         if [ ! -e "${BASENAME}${EXTENSION}" ] ; then
             (( MODIFIED_FILESCOUNT++ ))
